@@ -1,9 +1,102 @@
+
 const fs = require('fs');
+
 const path = require('path');
 const express = require('express');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { body, validationResult } = require('express-validator');
 
 const dbPath = path.join(__dirname, 'db.json');
 
+const usersDbPath = path.join(__dirname, 'users.json');
+
+// Helper function to read the users database
+const readUsersDB = () => {
+    if (!fs.existsSync(usersDbPath)) {
+        return [];
+    }
+    const data = fs.readFileSync(usersDbPath, 'utf8');
+    return JSON.parse(data);
+};
+
+// Helper function to write to the users database
+const writeUsersDB = (data) => {
+    fs.writeFileSync(usersDbPath, JSON.stringify(data, null, 2), 'utf8');
+};
+
+// Register a new user
+const registerUser = async (username, password) => {
+    const users = readUsersDB();
+    const existingUser = users.find(user => user.username === username);
+    if (existingUser) {
+        throw new Error('User already exists');
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = { id: Date.now(), username, password: hashedPassword };
+    users.push(newUser);
+    writeUsersDB(users);
+    return newUser;
+};
+
+// Authenticate user
+const authenticateUser = async (username, password) => {
+    const users = readUsersDB();
+    const user = users.find(user => user.username === username);
+    if (!user) {
+        throw new Error('User not found');
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+        throw new Error('Invalid password');
+    }
+    const token = jwt.sign({ id: user.id, username: user.username }, 'your_jwt_secret', { expiresIn: '1h' });
+    return token;
+};
+
+// Middleware to protect routes
+const authenticateToken = (req, res, next) => {
+    const token = req.header('Authorization')?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ message: 'Access denied' });
+    }
+    try {
+        const verified = jwt.verify(token, 'your_jwt_secret');
+        req.user = verified;
+        next();
+    } catch (err) {
+        res.status(400).json({ message: 'Invalid token' });
+    }
+};
+
+// Register route
+app.post('/register', [
+    body('username').isLength({ min: 3 }),
+    body('password').isLength({ min: 5 })
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+    const { username, password } = req.body;
+    try {
+        const newUser = await registerUser(username, password);
+        res.status(201).json(newUser);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+// Login route
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const token = await authenticateUser(username, password);
+        res.status(200).json({ token });
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
 // Helper function to read the database
 const readDB = () => {
     if (!fs.existsSync(dbPath)) {
