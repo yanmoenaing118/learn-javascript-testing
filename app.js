@@ -6,6 +6,9 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
+const csrf = require('csurf');
+const helmet = require('helmet');
+const xss = require('xss-clean');
 
 const dbPath = path.join(__dirname, 'db.json');
 
@@ -19,7 +22,16 @@ const readUsersDB = () => {
     const data = fs.readFileSync(usersDbPath, 'utf8');
     return JSON.parse(data);
 };
+const csrfProtection = csrf({ cookie: true });
 
+app.use(helmet());
+app.use(xss());
+app.use(csrfProtection);
+
+app.use((req, res, next) => {
+    res.cookie('XSRF-TOKEN', req.csrfToken());
+    next();
+});
 // Helper function to write to the users database
 const writeUsersDB = (data) => {
     fs.writeFileSync(usersDbPath, JSON.stringify(data, null, 2), 'utf8');
